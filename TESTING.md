@@ -1,5 +1,26 @@
 # Validation and acceptance checks
 
+## Revision 0.4 — mobile capture workflow
+
+- `npm test`: 21/21 passed, including two-bar duration, repeated/partial loop placement, offset handling and preservation of material outside replaced ranges.
+- Browser QA used real MediaRecorder/AudioContext/canvas capture with a **synthetic input fixture**, not the user's physical camera/microphone. This fixture stays under `work/`, is not in the repository and is never deployed.
+- At 120 BPM, recording started 4.18s after Record (4s count-in + setup/event margin). Stop during a second count-in cancelled without starting the recorder.
+- A 42.59s continuous capture cycled through 0–4s. Final linked regions covered 0–2.57s from the latest partial pass and 2.57–4s from the preceding pass. No timeline growth beyond cycle Out. Original continuous take was downloadable.
+- The resulting cycle mix exported successfully as native MP4 at the default 1080×1920 canvas. Export ran for 4.01s, ignoring cycle repeats. Physical output/device codec compatibility remains untested.
+- Real Web Audio monitor output was measured with the synthetic 0.02-peak input: default track gain 0.25 produced 0.005 peak; Input monitor OFF and track mute each produced 0.00000; arming the unmuted second track restored 0.005. Physical headphone routing/latency is not established by this graph test.
+- Screen wake lock was granted in preview and released by Stop engine. This does **not** verify iPhone auto-lock, low-power behavior or Home Screen installation.
+- At 390×844, document/client widths both 390; after 311px vertical scroll, transport top remained 0. Audio tab preview computed display was `none`; Video tab showed the portrait preview.
+- No browser console warnings/errors in the capture/export run. In-app browser did not confirm native Fullscreen; fallback instructions cover unsupported/rejected requests. Actual iPhone installation/fullscreen and audible input monitoring must be verified on hardware.
+
+### Phone acceptance checks
+
+1. Reload the updated HTTPS site. Use headphones; Start engine. Confirm input monitor is on and the armed input is audible; toggle it off/on and adjust that track's volume/mute. Disable software monitoring when using hardware direct monitoring. Check that export excludes live input and the metronome.
+2. Verify **SCREEN STAYS ON**, leave the visible app untouched longer than the phone's Auto-Lock period. Lock/background deliberately: transport stops; foregrounding retries the wake lock. Low-power/rejection must show the warning. Stop engine should release the lock and devices.
+3. Tap ⛶. If native fullscreen is unavailable, follow Share → Add to Home Screen → Open as Web App. Download existing takes first; launch from icon and verify browser bars are absent. No offline/background recording is promised.
+4. Record at 60/120 BPM: hear exactly eight pre-roll clicks; no take during count-in. Stop mid-count-in should leave no new region. Test interruptions during count-in too.
+5. Set cycle 2–6s; record for several passes then stop mid-pass. Position must wrap; the latest performed portion replaces earlier material, with no region outside the cycle. Download the full original, then Undo to restore pre-recording material. Confirm linked audio/video boundaries and playback/export across the partial-pass join.
+6. Audio tab has no monitor; Video tab has live camera when the armed position is empty and during recording. Default export is 9:16. Verify full-frame/2/3/4-way layouts, portrait MP4 import to the target social app, sticky mobile transport while scrolling, and landscape orientation.
+
 ## Revision 0.3 — four tracks
 
 - 15/15 model tests pass, including four independent track objects, rejection beyond the limit, and exact three/four-video tile geometry in landscape, square and portrait.
@@ -35,7 +56,7 @@ Delivery checks: 28 October 2026. No physical USB/camera calibration or iOS cert
 
 ## Not verified on actual devices
 
-Camera/mic permission grant/denial, real camera recording, USB input routing/disconnect, camera/audio drift, physical loopback accuracy, direct monitoring, audible metronome precision, click exclusion by listening, real clap lip-sync, iOS Chrome/Safari, Android, external Firefox/Safari, Bluetooth, sleep/wake and long-session memory pressure. The detector was validated with synthetic signals only. GitHub Actions/Pages were not run: authenticated GitHub access was unavailable.
+Camera/mic permission grant/denial, real camera recording, USB input routing/disconnect, camera/audio drift, physical loopback accuracy, direct monitoring, audible metronome precision, click exclusion by listening, real clap lip-sync, iOS Chrome/Safari, Android, external Firefox/Safari, Bluetooth, sleep/wake and long-session memory pressure. The detector was validated with synthetic signals only. This was the initial delivery limitation; GitHub Pages was subsequently enabled and v0.3 deployed successfully from main/root. No custom Actions workflow is required.
 
 ## Repeatable acceptance checklist
 

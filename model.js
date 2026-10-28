@@ -69,3 +69,24 @@ export function videoRects(count, width, height) {
 export function mp4Type(supports) {
   return ['video/mp4;codecs=avc1.420028,mp4a.40.2','video/mp4;codecs=avc1.42E028,mp4a.40.2','video/mp4;codecs=avc1.4d0028,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2'].find(supports)||'';
 }
+
+// Continuous capture is mapped to cycle passes without restarting the encoder.
+export function recordingSegments(length, from, loop, offsetMs=0) {
+  if (!Number.isFinite(length) || length <= 0) return [];
+  if (!loop) {const place=recordingPlacement(from,offsetMs);return length-place.in>=.05?[{...place,out:length}]:[];}
+  if (loop.end-loop.start<.1 || from<loop.start || from>=loop.end) throw Error('Invalid recording cycle.');
+  const result=[];let input=Math.max(0,offsetMs/1000),start=from;
+  while(input<length-.000001){const out=Math.min(length,input+loop.end-start);if(out-input>=.05)result.push({start,in:input,out});input=out;start=loop.start;}
+  return result;
+}
+// Keep unaffected portions; only the newly performed interval is replaced.
+export function replaceRange(clips, incoming, newId) {
+  const end=endOf(incoming),result=[];
+  for(const c of clips){
+    if(endOf(c)<=incoming.start || c.start>=end){result.push(c);continue;}
+    if(c.start<incoming.start)result.push({...c,out:c.in+incoming.start-c.start});
+    if(endOf(c)>end)result.push({...c,id:newId(),start:end,in:c.in+end-c.start});
+  }
+  return [...result,incoming].sort((a,b)=>a.start-b.start);
+}
+export const countInSeconds = bpm => 8*60/bpm;
