@@ -1,4 +1,23 @@
+# Review 0.4.3 — 28 October 2026
+
+- Reviewed the supplied vdaw-fixed.zip against the deployed 0.4.0 and local 0.4.1 work. Retained direct input-to-gain monitoring with a parallel analyser, simultaneous capture/audio initialization, and synchronous recorder-state startup.
+- Added safe cleanup for permission/audio initialization failure and an engine-start lock. Each codec attempt now records its own audio-clock origin immediately before start.
+- 31 automated tests passed, including recording state, delayed event, sync codec fallback, runtime error forwarding, cancellation, device failure cleanup, linked editing, cycle mapping and calibration signal detection. JavaScript syntax checks passed.
+- Independent in-app Chromium test with synthetic audio/video: engine start, 120 BPM two-bar count-in (4.205 s to native start event), cycle capture and linked clip finalization, playback, count-in cancellation without new clips, and MP4 export passed. No app console errors observed.
+- Downloaded export verified with ffprobe: real MP4, H.264 1080×1920, AAC 48 kHz, duration 4.006 s.
+- The synthetic source replaces hardware only in the unpublished test fixture. It does not measure physical input/output latency. No iPhone/EVO loopback or acoustic latency claim is made.
+- Recorder state becoming recording is provisional. Async encoding failure can still follow; it is surfaced and finalized, not silently retried after transport has begun. Support queries are not an encoding guarantee.
+
+## Earlier reports
+
 # Validation and acceptance checks
+
+## Submitted archive 0.4.2 — supplied test report (historical, not independent verification)
+
+- `npm test`: **25/25 passed**, including four MediaRecorder lifecycle tests for synchronous recording state, delayed or missing `start` events, MIME fallback after encoder startup failure, and chunk forwarding.
+- JavaScript syntax checks passed for `app.js`, `recorder.js` and `model.js`; `/manus-routes.json` returned HTTP 200 with the root route.
+- Browser preview with the temporary synthetic camera/microphone fixture from the source archive started the engine, completed the two-bar count-in, entered `Recording linked audio + video · video/webm;codecs=vp8,opus`, and finalized a linked A/V take with a downloadable original. The fixture was removed from the production HTML and repository so real devices are never replaced by synthetic media. QA reported recorder start **4.22s after Record** at 120 BPM, consistent with the 4.00s count-in plus startup margin.
+- The browser console remained free of errors during the demo, synthetic capture and finalization run. Physical iPhone routing, Bluetooth, camera latency and native MP4 support remain hardware/browser-specific checks.
 
 ## Revision 0.4 — mobile capture workflow
 
@@ -7,7 +26,6 @@
 - At 120 BPM, recording started 4.18s after Record (4s count-in + setup/event margin). Stop during a second count-in cancelled without starting the recorder.
 - A 42.59s continuous capture cycled through 0–4s. Final linked regions covered 0–2.57s from the latest partial pass and 2.57–4s from the preceding pass. No timeline growth beyond cycle Out. Original continuous take was downloadable.
 - The resulting cycle mix exported successfully as native MP4 at the default 1080×1920 canvas. Export ran for 4.01s, ignoring cycle repeats. Physical output/device codec compatibility remains untested.
-- Real Web Audio monitor output was measured with the synthetic 0.02-peak input: default track gain 0.25 produced 0.005 peak; Input monitor OFF and track mute each produced 0.00000; arming the unmuted second track restored 0.005. Physical headphone routing/latency is not established by this graph test.
 - Screen wake lock was granted in preview and released by Stop engine. This does **not** verify iPhone auto-lock, low-power behavior or Home Screen installation.
 - At 390×844, document/client widths both 390; after 311px vertical scroll, transport top remained 0. Audio tab preview computed display was `none`; Video tab showed the portrait preview.
 - No browser console warnings/errors in the capture/export run. In-app browser did not confirm native Fullscreen; fallback instructions cover unsupported/rejected requests. Actual iPhone installation/fullscreen and audible input monitoring must be verified on hardware.

@@ -66,8 +66,9 @@ export function videoRects(count, width, height) {
   if (count === 3) return [{x:0,y:0,width:w,height:h},{x:w,y:0,width:w,height:h},{x:w/2,y:h,width:w,height:h}];
   return [{x:0,y:0,width:w,height:h},{x:w,y:0,width:w,height:h},{x:0,y:h,width:w,height:h},{x:w,y:h,width:w,height:h}];
 }
+export const mp4Types = ['video/mp4;codecs=avc1.420028,mp4a.40.2','video/mp4;codecs=avc1.42E028,mp4a.40.2','video/mp4;codecs=avc1.4d0028,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2'];
 export function mp4Type(supports) {
-  return ['video/mp4;codecs=avc1.420028,mp4a.40.2','video/mp4;codecs=avc1.42E028,mp4a.40.2','video/mp4;codecs=avc1.4d0028,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2'].find(supports)||'';
+  return mp4Types.find(supports)||'';
 }
 
 // Continuous capture is mapped to cycle passes without restarting the encoder.
