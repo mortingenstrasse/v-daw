@@ -93,3 +93,11 @@ Monitoring uses MediaStreamSource → gain → destination; the analyser is a se
 Recorder startup follows its synchronous recording state so delayed start events do not stall transport. The state does not certify encoder success: subsequent errors remain visible. Codec fallback applies to failures before startup is accepted. Device startup failures release granted tracks, and duplicate engine starts are locked out.
 
 See TESTING.md for independently repeated 0.4.3 checks. Third-party hosting files from the supplied archive are not required for GitHub Pages and are not included.
+
+## 0.5.0 — linked transient quantize
+
+After recording, select a region and choose **Quantize A/V**. Choose Selected region or Entire armed track, a 1/4, 1/8 or 1/16 grid and 0–100% strength, then Apply quantize. Both audio and video share source slices and new timeline positions. Undo restores the previous edit; use Undo before trying a different strength to avoid cumulative edits. Original media remains unchanged.
+
+This is transient slice quantization, not time stretching. The detector uses rising short-window RMS energy across all audio channels; it works best for isolated percussive attacks. Polyphonic music, quiet notes and sustained vocals may be missed or misidentified. Colliding grid targets remain in the preceding slice. Hits whose target lies outside the selected region retain their original placement. Overlapping tails are trimmed, delayed slices can leave gaps, and video has visible cuts. Quantized audio slices use up to 2 ms boundary fades to reduce clicks. Up to 400 resulting slices are allowed per edit. Quantize cannot correct hardware monitoring delay or independently fix camera/audio sync.
+
+The metronome now plans a 250 ms horizon from the audio clock with a continuous scheduling cursor. Loop audio scheduling also runs on the 25 ms scheduler, and finished click nodes are removed. This reduces sensitivity to rendering stalls, but prolonged browser suspension or main-thread stalls can still interrupt real-time playback.

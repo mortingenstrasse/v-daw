@@ -1,6 +1,7 @@
-import {openDevices} from './devices.js?v=0.4.3';
-import {captureTypes,startCapture} from './recorder.js?v=0.4.3';
-import {endOf,durationOf,splitClip,trimClip,makeChirp,detectChirp,summarizeLatency,loopPosition,playbackWindow,videoRects,mp4Type,mp4Types,MAX_TRACKS,createTrack,recordingSegments,replaceRange,countInSeconds} from './model.js?v=0.4.3';
+import {detectOnsets,quantizeClip,beatEvents} from './quantize.js?v=0.5.0';
+import {openDevices} from './devices.js?v=0.5.0';
+import {captureTypes,startCapture} from './recorder.js?v=0.5.0';
+import {endOf,durationOf,splitClip,trimClip,makeChirp,detectChirp,summarizeLatency,loopPosition,playbackWindow,videoRects,mp4Type,mp4Types,MAX_TRACKS,createTrack,recordingSegments,replaceRange,countInSeconds} from './model.js?v=0.5.0';
 const $=id=>document.getElementById(id), uid=()=>crypto.randomUUID();
 const tracks=[createTrack(0),createTrack(1)];
 const sources=new Map(), history=[];
@@ -35,7 +36,7 @@ function updateButtons(){
  $('exportSupport').textContent=exportMime()?'MP4 · H.264 + AAC · full timeline · real-time export': 'MP4 H.264 + AAC encoder unavailable in this browser. Try a current desktop Chrome or Safari. No WebM is substituted.';
  $('exportCodec').textContent=exportMime()?'MP4 · H.264 / AAC':'MP4 ENCODER UNAVAILABLE';
  document.querySelectorAll('.track-controls .arm').forEach(b=>b.disabled=idleHeld);
- $('inspectorArm').disabled=idleHeld;$('addTrack').disabled=idleHeld||tracks.length>=MAX_TRACKS;$('trackCount').textContent=`${tracks.length} A/V`;$('trackLimit').textContent=`${tracks.length} / ${MAX_TRACKS}`;$('addTrack').title=tracks.length>=MAX_TRACKS?'Maximum four tracks reached':'Add a linked audio + video track';document.querySelectorAll('.track-controls input,#inspectorVolume,#masterVolume').forEach(el=>el.disabled=busy||measuring);$('inspectorMute').disabled=busy;$('masterMute').disabled=busy;
+ $('quantize').disabled=idleHeld||!tracks.some(t=>t.clips.length);$('inspectorArm').disabled=idleHeld;$('addTrack').disabled=idleHeld||tracks.length>=MAX_TRACKS;$('trackCount').textContent=`${tracks.length} A/V`;$('trackLimit').textContent=`${tracks.length} / ${MAX_TRACKS}`;$('addTrack').title=tracks.length>=MAX_TRACKS?'Maximum four tracks reached':'Add a linked audio + video track';document.querySelectorAll('.track-controls input,#inspectorVolume,#masterVolume').forEach(el=>el.disabled=busy||measuring);$('inspectorMute').disabled=busy;$('masterMute').disabled=busy;
 }
 function render(){
  const width=Math.max(20,duration()+3,cycle.end+2)*zoom();
@@ -122,15 +123,17 @@ function scheduleCycle(s,index){
  for(const {c,s:source,ti} of s.items){
   const start=Math.max(c.start,window.start),end=Math.min(endOf(c),window.end);
   if(end<=start)continue;
-  const node=ctx.createBufferSource();node.buffer=source.buffer;node.connect(s.gains[ti]);
-  node.start(s.epoch+window.at+start-window.start,c.in+start-c.start,end-start);s.nodes.push(node);
-  node.onended=()=>{node.disconnect();const n=s.nodes.indexOf(node);if(n>=0)s.nodes.splice(n,1);};
+  const node=ctx.createBufferSource();node.buffer=source.buffer;
+  const at=s.epoch+window.at+start-window.start,length=end-start;let edgeGain;
+  if(c.quantized){edgeGain=ctx.createGain();const fade=Math.min(.002,length/3);edgeGain.gain.setValueAtTime(0,at);edgeGain.gain.linearRampToValueAtTime(1,at+fade);edgeGain.gain.setValueAtTime(1,at+length-fade);edgeGain.gain.linearRampToValueAtTime(0,at+length);node.connect(edgeGain).connect(s.gains[ti]);}else node.connect(s.gains[ti]);
+  node.start(at,c.in+start-c.start,length);s.nodes.push(node);
+  node.onended=()=>{node.disconnect();edgeGain?.disconnect();const n=s.nodes.indexOf(node);if(n>=0)s.nodes.splice(n,1);};
  }
 }
 function launch(s,epoch){
  s.epoch=epoch;session=s;scheduleCycle(s,0);s.scheduledCycle=0;
  const beat=60/Number($('bpm').value);s.nextBeat=Math.ceil(s.from/beat)*beat-s.from;
- render();
+ metronome();render();
 }
 function releaseSession(){if(!session)return;const s=session;session=null;disposePrepared(s);}
 function disposePrepared(s){for(const n of s.nodes){try{n.stop();}catch{}n.disconnect();}s.gains.forEach(n=>n.disconnect());s.meters.forEach(n=>n.disconnect());s.master.disconnect();s.masterMeter.disconnect();s.items.forEach(i=>{i.v.pause();i.v.removeAttribute('src');i.v.load();});}
@@ -139,22 +142,15 @@ async function play(){if(session||recording||busy||measuring||preparing)return;i
 async function seek(t){if(busy||recording||measuring||preparing)return;const resume=!!session;releaseSession();position=Math.max(0,Math.min(duration()||20,t));const scroller=document.querySelector('.timeline-scroll'),head=document.querySelector('.track-head');scroller.scrollLeft=Math.max(0,position*zoom()-(scroller.clientWidth-(head?.offsetWidth||246))*.5);updateTime();if(resume)await play();else await showStill();render();}
 function sourcePreview(source,index){if(!source.previews[index]){const v=document.createElement('video');v.src=source.url;v.muted=true;v.playsInline=true;v.preload='auto';source.previews[index]=v;}return source.previews[index];}
 async function showStill(){const all=[];for(let ti=0;ti<tracks.length;ti++)for(const c of tracks[ti].clips)if(position>=c.start&&position<endOf(c)){const s=sources.get(c.source);const v=sourcePreview(s,ti);all.push(metadata(v).then(()=>prepareVideo(v,c.in+position-c.start))); }await Promise.all(all);draw();}
-function click(at,strong){const o=ctx.createOscillator(),gain=ctx.createGain();o.frequency.value=strong?1400:1000;gain.gain.setValueAtTime(.09,at);gain.gain.exponentialRampToValueAtTime(.0001,at+.035);o.connect(gain).connect(ctx.destination);o.start(at);o.stop(at+.04);o.onended=()=>{o.disconnect();gain.disconnect();};if(session)session.nodes.push(o);return o;}
+function click(at,strong){const o=ctx.createOscillator(),gain=ctx.createGain();o.frequency.value=strong?1400:1000;gain.gain.setValueAtTime(.09,at);gain.gain.exponentialRampToValueAtTime(.0001,at+.035);o.connect(gain).connect(ctx.destination);o.start(at);o.stop(at+.04);const owner=session;o.onended=()=>{o.disconnect();gain.disconnect();if(owner){const i=owner.nodes.indexOf(o);if(i>=0)owner.nodes.splice(i,1);}};if(owner)owner.nodes.push(o);return o;}
 function metronome(){
- if(!session||session.exporting||!$('metro').checked)return;
- const s=session,beat=60/Number($('bpm').value),now=ctx.currentTime,elapsed=Math.max(0,now-s.epoch),horizon=now+.12;
- let index=0;
- if(s.loop&&elapsed>=s.loop.end-s.from)index=1+Math.floor((elapsed-(s.loop.end-s.from))/(s.loop.end-s.loop.start));
- for(let n=index;n<index+4;n++){
-  const window=playbackWindow(s.from,s.loop,n);if(s.epoch+window.at>horizon)break;
-  const lower=Math.max(window.start,window.start+now-s.epoch-window.at);
-  const upper=Math.min(window.end,window.start+horizon-s.epoch-window.at);
-  for(let t=Math.ceil((lower-.000001)/beat)*beat;t<window.end-.000001&&t<=upper;t+=beat){
-   const at=s.epoch+window.at+t-window.start;
-   if(at>=now-.001&&at>(s.lastClickTime??-1)+.001){click(Math.max(at,now),Math.round(t/beat)%4===0);s.lastClickTime=at;}
-  }
-  if(!s.loop)break;
- }
+ if(!session)return;
+ const s=session,now=ctx.currentTime,elapsed=Math.max(0,now-s.epoch);
+ if(s.loop){while(playbackWindow(s.from,s.loop,s.scheduledCycle+1).at<=elapsed+.4){s.scheduledCycle++;scheduleCycle(s,s.scheduledCycle);}}
+ if(s.exporting||!$('metro').checked){s.clickThrough=elapsed;return;}
+ const until=elapsed+.25,from=s.clickThrough===undefined?0:Math.max(elapsed,s.clickThrough);
+ for(const beat of beatEvents(s.from,s.loop,Number($('bpm').value),from,until)){const at=s.epoch+beat.at;if(at>=now-.03)click(Math.max(now,at),beat.strong);}
+ s.clickThrough=until;
 }
 function activeVideos(){const list=[];for(let ti=0;ti<tracks.length;ti++){let v;const item=session?.items.find(i=>i.ti===ti&&position>=i.c.start&&position<endOf(i.c));if(item)v=item.v;else if(!session){const c=tracks[ti].clips.find(c=>position>=c.start&&position<endOf(c));if(c)v=sourcePreview(sources.get(c.source),ti);}if(stream&&Number($('armed').value)===ti&&(recording||(!session&&!tracks[ti].clips.some(c=>position>=c.start&&position<endOf(c)))))v=$('camera');if(v)list.push({v,ti});}return list;}
 function draw(force=false){
@@ -277,8 +273,35 @@ async function exportVideo(){
  }
 }
 function finishExport(cancel=false){if(!exportState)return;exportState.cancelled ||= cancel;releaseSession();if(!exportState.rec)exportState.controller.abort();else if(exportState.rec.state!=='inactive')exportState.rec.stop();}
-async function calibrate(){requireIdle();if(!$('loopbackReady').checked)throw Error('Confirm the physical loopback setup first.');if(!stream)throw Error('Start the engine first.');await audio();if(!ctx.audioWorklet)throw Error('AudioWorklet is unavailable. Calibration is unsupported in this browser.');measuring=true;syncInputMonitor();updateButtons();status('Measuring three loopback pulses…');let input,node,silent;const tones=[];try{await ctx.audioWorklet.addModule('./capture-worklet.js?v=0.4.3');input=ctx.createMediaStreamSource(stream);node=new AudioWorkletNode(ctx,'loopback-capture');silent=ctx.createGain();silent.gain.value=0;input.connect(node).connect(silent).connect(ctx.destination);const rate=ctx.sampleRate,chirp=makeChirp(rate),base=Math.ceil((ctx.currentTime+.35)*rate),size=Math.ceil(rate*4),samples=new Float32Array(size),sent=[0,1,2].map(n=>base+Math.round(n*1.1*rate));node.port.onmessage=({data})=>{const start=data.frame-base;for(let j=0;j<data.samples.length;j++){const at=start+j;if(at>=0&&at<size)samples[at]=data.samples[j];}};for(const frame of sent){const buffer=ctx.createBuffer(1,chirp.length,rate);buffer.copyToChannel(chirp,0);const source=ctx.createBufferSource();source.buffer=buffer;source.connect(ctx.destination);source.start(frame/rate);tones.push(source);}await new Promise(r=>setTimeout(r,Math.max(0,((base+size)/rate-ctx.currentTime)*1000)+150));const results=sent.map(frame=>{const expected=frame-base,result=detectChirp(samples,chirp,expected+Math.round(rate*.001),expected+Math.round(rate*.8));return {...result,delay:result.index-expected};});measured={...summarizeLatency(results,rate),at:new Date().toISOString()};$('calibrationResult').textContent=`Round trip ${measured.ms.toFixed(1)} ms · spread ${measured.jitter.toFixed(1)} ms · match ${(measured.confidence*100).toFixed(0)}%. ${new Date().toLocaleTimeString()}. Not a camera/input-only measurement.`;status('Loopback measured. Remove cable and restore recording input. Offset stays unchanged until you explicitly apply an estimate.');}catch(e){measured=null;$('calibrationResult').textContent=`Measurement failed: ${e.message}`;throw e;}finally{tones.forEach(t=>{try{t.stop();}catch{}t.disconnect();});input?.disconnect();node?.disconnect();node?.port.close();silent?.disconnect();measuring=false;syncInputMonitor();render();}}
+async function calibrate(){requireIdle();if(!$('loopbackReady').checked)throw Error('Confirm the physical loopback setup first.');if(!stream)throw Error('Start the engine first.');await audio();if(!ctx.audioWorklet)throw Error('AudioWorklet is unavailable. Calibration is unsupported in this browser.');measuring=true;syncInputMonitor();updateButtons();status('Measuring three loopback pulses…');let input,node,silent;const tones=[];try{await ctx.audioWorklet.addModule('./capture-worklet.js?v=0.5.0');input=ctx.createMediaStreamSource(stream);node=new AudioWorkletNode(ctx,'loopback-capture');silent=ctx.createGain();silent.gain.value=0;input.connect(node).connect(silent).connect(ctx.destination);const rate=ctx.sampleRate,chirp=makeChirp(rate),base=Math.ceil((ctx.currentTime+.35)*rate),size=Math.ceil(rate*4),samples=new Float32Array(size),sent=[0,1,2].map(n=>base+Math.round(n*1.1*rate));node.port.onmessage=({data})=>{const start=data.frame-base;for(let j=0;j<data.samples.length;j++){const at=start+j;if(at>=0&&at<size)samples[at]=data.samples[j];}};for(const frame of sent){const buffer=ctx.createBuffer(1,chirp.length,rate);buffer.copyToChannel(chirp,0);const source=ctx.createBufferSource();source.buffer=buffer;source.connect(ctx.destination);source.start(frame/rate);tones.push(source);}await new Promise(r=>setTimeout(r,Math.max(0,((base+size)/rate-ctx.currentTime)*1000)+150));const results=sent.map(frame=>{const expected=frame-base,result=detectChirp(samples,chirp,expected+Math.round(rate*.001),expected+Math.round(rate*.8));return {...result,delay:result.index-expected};});measured={...summarizeLatency(results,rate),at:new Date().toISOString()};$('calibrationResult').textContent=`Round trip ${measured.ms.toFixed(1)} ms · spread ${measured.jitter.toFixed(1)} ms · match ${(measured.confidence*100).toFixed(0)}%. ${new Date().toLocaleTimeString()}. Not a camera/input-only measurement.`;status('Loopback measured. Remove cable and restore recording input. Offset stays unchanged until you explicitly apply an estimate.');}catch(e){measured=null;$('calibrationResult').textContent=`Measurement failed: ${e.message}`;throw e;}finally{tones.forEach(t=>{try{t.stop();}catch{}t.disconnect();});input?.disconnect();node?.disconnect();node?.port.close();silent?.disconnect();measuring=false;syncInputMonitor();render();}}
 async function demo(){requireIdle();if(tracks.some(t=>t.clips.length))throw Error('Demo needs an empty session. Delete existing clips first.');if(!canvas.captureStream||!mime())throw Error('Demo generation requires canvas video recording. Import a supported video instead.');await audio();busy=true;updateButtons();status('Generating a real 4-second A/V demo…');const c=document.createElement('canvas');c.width=640;c.height=360;const d=c.getContext('2d'),vs=c.captureStream(24),dest=ctx.createMediaStreamDestination(),osc=ctx.createOscillator(),gain=ctx.createGain();osc.frequency.value=220;gain.gain.value=.06;osc.connect(gain).connect(dest);osc.start();const rec=new MediaRecorder(new MediaStream([...vs.getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:mime()}),chunks=[];let timer;try{const done=new Promise((res,rej)=>{rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};rec.onstop=res;rec.onerror=e=>rej(e.error||Error('Demo recorder failed.'));});const start=performance.now();timer=setInterval(()=>{const t=(performance.now()-start)/1000;d.fillStyle='#dce2d3';d.fillRect(0,0,640,360);d.fillStyle='#59654d';d.beginPath();d.arc(320+Math.sin(t*2)*150,180,48,0,Math.PI*2);d.fill();d.fillStyle='#283022';d.font='24px sans-serif';d.fillText(`v-daw / ${t.toFixed(2)}s`,24,42);},40);rec.start(250);await new Promise(r=>setTimeout(r,4000));rec.stop();await done;const blob=new Blob(chunks,{type:rec.mimeType});const id=await addSource(blob,'Studio demo',4);checkpoint();const out=Math.min(4,sources.get(id).duration);tracks.forEach((t,ti)=>t.clips.push({id:uid(),source:id,start:ti,in:0,out:Math.min(4-ti,out)}));selected=tracks[0].clips[0].id;position=0;await showStill();status(`Demo ready on ${tracks.length} linked tracks. Seek to 2.5s for three videos or 3.5s for four when those tracks are added before loading the demo.`);}finally{clearInterval(timer);osc.stop();osc.disconnect();gain.disconnect();vs.getTracks().forEach(t=>t.stop());dest.stream.getTracks().forEach(t=>t.stop());busy=false;render();}}
+let quantizeDraft=null;
+function quantizeTargets(){
+ const sel=getSelected();
+ return $('quantizeScope').value==='region'&&sel?{track:sel.t,clips:[sel.c]}:{track:tracks[Number($('armed').value)],clips:tracks[Number($('armed').value)].clips};
+}
+function analyseQuantize(){
+ const target=quantizeTargets();
+ quantizeDraft={track:target.track,clips:target.clips.map(c=>({...c})),hits:target.clips.map(c=>{const b=sources.get(c.source).buffer;return detectOnsets(Array.from({length:b.numberOfChannels},(_,i)=>b.getChannelData(i)),b.sampleRate,c.in,c.out);})};
+ updateQuantize();
+}
+function updateQuantize(){
+ $('quantizeAmount').textContent=`${$('quantizeStrength').value}%`;
+ const count=quantizeDraft?.hits.reduce((n,h)=>n+h.length,0)||0;
+ $('quantizeInfo').textContent=`${count} detected attacks · ${quantizeDraft?.clips.length||0} linked regions. Audio and video will use the same cuts and positions.`;
+ $('quantizeApply').disabled=!count||Number($('quantizeStrength').value)===0;
+}
+$('quantize').onclick=protect(()=>{requireIdle();$('quantizeScope').options[0].disabled=!getSelected();$('quantizeScope').value=getSelected()?'region':'track';analyseQuantize();$('quantizeDialog').showModal();});
+$('quantizeScope').onchange=analyseQuantize;$('quantizeStrength').oninput=updateQuantize;
+$('quantizeCancel').onclick=()=>{$('quantizeDialog').close();quantizeDraft=null;};
+$('quantizeForm').onsubmit=e=>{e.preventDefault();protect(async()=>{
+ requireIdle();if(!quantizeDraft)return;
+ const {track,clips,hits}=quantizeDraft,amount=Number($('quantizeStrength').value)/100;
+ const parts=clips.flatMap((c,i)=>quantizeClip(c,hits[i],Number($('bpm').value),Number($('quantizeGrid').value),amount,uid));
+ if(parts.length>400)throw Error('Too many slices. Quantize a shorter selected region (maximum 400 slices per edit).');
+ checkpoint();const ids=new Set(clips.map(c=>c.id));track.clips=[...track.clips.filter(c=>!ids.has(c.id)),...parts].sort((a,b)=>a.start-b.start);selected=parts[0]?.id;
+ $('quantizeDialog').close();quantizeDraft=null;render();await showStill();status(`Quantize ${Math.round(amount*100)}% applied to linked audio + video. Listen back; Undo restores the original timing.`);
+ })();};
 $('engine').onclick=protect(()=>stream?stopEngine():startEngine());$('inputMonitor').onchange=syncInputMonitor;$('wakeStatus').onclick=keepAwake;$('fullscreen').onclick=protect(async()=>{if(document.fullscreenElement){await document.exitFullscreen();return;}if(document.documentElement.requestFullscreen){try{await Promise.race([document.documentElement.requestFullscreen(),new Promise(resolve=>setTimeout(resolve,1500))]);if(document.fullscreenElement)return;}catch{}}$('fullscreenHelp').showModal();});$('applyDevices').onclick=protect(startEngine);$('settingsBtn').onclick=()=>{$('settings').showModal();};$('play').onclick=protect(play);$('record').onclick=protect(record);$('stop').onclick=()=>stopAll();$('home').onclick=protect(()=>seek(0));$('ruler').onclick=protect(e=>seek((e.clientX-$('ruler').getBoundingClientRect().left)/zoom()));$('ruler').onkeydown=protect(e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();return seek(e.key==='Home'?0:e.key==='End'?duration():position+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?1:.1));}});$('zoom').oninput=render;$('audioTab').onclick=()=>{view='audio';document.body.dataset.view='audio';$('audioTab').setAttribute('aria-selected','true');$('videoTab').setAttribute('aria-selected','false');render();};$('videoTab').onclick=()=>{view='video';document.body.dataset.view='video';$('audioTab').setAttribute('aria-selected','false');$('videoTab').setAttribute('aria-selected','true');render();};$('split').onclick=protect(()=>{requireIdle();const x=getSelected();if(!x)return;const parts=splitClip(x.c,position,uid());checkpoint();x.t.clips.splice(x.t.clips.indexOf(x.c),1,...parts);selected=parts[1].id;render();showStill().catch(e=>status(e.message,true));});$('delete').onclick=protect(()=>{requireIdle();const x=getSelected();if(!x)return;checkpoint();x.t.clips.splice(x.t.clips.indexOf(x.c),1);selected=null;render();});$('undo').onclick=()=>{if(busy||session||recording||measuring||!history.length)return;history.pop().forEach((clips,i)=>tracks[i].clips=clips);selected=null;render();showStill().catch(e=>status(e.message,true));};$('trim').onclick=()=>{const x=getSelected();if(!x||session||recording||busy||preparing)return;$('trimIn').value=String(x.c.in);$('trimOut').value=String(x.c.out);$('trimDialog').showModal();};$('trimCancel').onclick=()=>$('trimDialog').close();$('trimForm').onsubmit=e=>{e.preventDefault();protect(()=>{requireIdle();const x=getSelected();if(!x)return;const c=trimClip(x.c,Number($('trimIn').value),Number($('trimOut').value));checkpoint();x.t.clips.splice(x.t.clips.indexOf(x.c),1,c);$('trimDialog').close();render();showStill().catch(e=>status(e.message,true));})();};$('import').onchange=protect(async e=>{try{await importFile(e.target.files[0]);}finally{e.target.value='';}});$('demo').onclick=protect(demo);$('export').onclick=protect(exportVideo);$('cancelExport').onclick=()=>finishExport(true);$('calibrate').onclick=protect(calibrate);$('useMeasured').onclick=()=>{if(measured){$('offset').value=measured.ms.toFixed(1);status('Using full round trip as a manual advance estimate for new takes. Verify with a clap; this can overcompensate input delay.');}};$('offset').onchange=()=>{$('offset').value=Math.min(1000,Math.max(0,Number($('offset').value)||0));};$('bpm').onchange=()=>{$('bpm').value=Math.min(260,Math.max(30,Number($('bpm').value)||120));render();};
 $('addTrack').onclick=protect(addTrack);$('armed').onchange=()=>{syncInputMonitor();render();};
 $('inspectorArm').onclick=()=>status(`Track 0${Number($('armed').value)+1} is armed. Use the other track’s R button to change the recording target.`);

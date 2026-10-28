@@ -1,3 +1,10 @@
+# Revision 0.5.0 — 29 October 2026
+
+- 37 automated tests pass. Added stereo/silence onset detection, 0/50/100% strength, source/timeline boundaries, collision and overlap handling, stable beat phase across scheduling windows and non-bar cycle wrapping.
+- Synthetic rhythmic capture in in-app Chromium: 46 attacks detected; 60% quantize produced 47 linked regions in both Audio and Video views. Playback passed with no console errors. Undo restored one original region. Entire armed track at 100% also tested.
+- Quantized export downloaded and verified: H.264 1080×1920 + AAC MP4, 22.271 s. FFmpeg decoded both streams without errors when retaining the source time base (-fps_mode passthrough -enc_time_base:v demux). Default output time-base rounding produced duplicate-DTS warnings; they were not source decode failures. Final microfade/metronome version also passed quantized playback with no browser errors.
+- Transient detection is heuristic and not certified for arbitrary instruments. Physical iPhone timing and audible metronome stability require device testing; automated tests do not establish zero jitter.
+
 # Review 0.4.3 — 28 October 2026
 
 - Reviewed the supplied vdaw-fixed.zip against the deployed 0.4.0 and local 0.4.1 work. Retained direct input-to-gain monitoring with a parallel analyser, simultaneous capture/audio initialization, and synchronous recorder-state startup.
