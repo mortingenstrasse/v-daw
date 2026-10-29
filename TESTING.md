@@ -1,3 +1,11 @@
+# Revision 0.5.1 — internal audio quantize / camera discovery
+
+- 40 automated tests pass. Added single-region/video-bound preservation, reversible/non-cumulative strength and trim/split map tests.
+- Browser QA with synthetic rhythmic audio/video: 60 attacks quantized, exactly ONE timeline region retained. Video preparation created ONE playback video element (instrumented count 1 → 2), not one per attack. Playback started successfully.
+- Strength 0 removed the Q audio map; reapplying 100% and trimming to 5 seconds worked. Export is H.264 1080×1920 + AAC, 5.023 seconds. FFmpeg blackdetect (minimum 30 ms, pixel threshold 0.10) found zero black intervals in the synthetic output.
+- Camera discovery fixture exposed built-in, simulated iPhone Continuity and USB cameras. All three appeared. Selecting iPhone and Reconnect sent video.deviceId.exact=iphone without resolution, facingMode or aspect constraints. These are simulated devices, not proof of physical Continuity Camera availability.
+- Production contains no synthetic media overrides. macOS/iPhone permissions and discovery must be checked on the actual setup. Quantize now intentionally changes audio timing only, so visible instrument gestures can differ from the shifted sound.
+
 # Revision 0.5.0 — 29 October 2026
 
 - 37 automated tests pass. Added stereo/silence onset detection, 0/50/100% strength, source/timeline boundaries, collision and overlap handling, stable beat phase across scheduling windows and non-bar cycle wrapping.

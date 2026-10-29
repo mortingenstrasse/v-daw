@@ -49,3 +49,25 @@ export function beatEvents(from,loop,bpm,lo,hi){
  }
  return events;
 }
+
+// Store edits in the region's source-coordinate space. Trim/split can keep the
+// same immutable map while changing only the visible source window.
+export function quantizeRegion(clip,onsets,bpm,division,strength){
+ const {audioSlices,quantizeSettings,...original}=clip;
+ if(!strength)return original;
+ const parts=quantizeClip(original,onsets,bpm,division,strength,()=>original.id);
+ return {...original,audioSlices:parts.map(p=>({start:original.in+p.start-original.start,in:p.in,out:p.out})),quantizeSettings:{bpm,division,strength}};
+}
+export function audioParts(clip){
+ if(!clip.audioSlices)return [clip];
+ return clip.audioSlices.flatMap(p=>{
+  const start=Math.max(clip.in,p.start),end=Math.min(clip.out,p.start+p.out-p.in);
+  return end>start?[{...clip,audioSlices:undefined,start:clip.start+start-clip.in,in:p.in+(start-p.start),out:p.in+(end-p.start),quantized:true}]:[];
+ });
+}
+export function audioSourceTime(clip,time){
+ if(!clip.audioSlices)return time;
+ let lo=0,hi=clip.audioSlices.length;
+ while(lo<hi){const mid=(lo+hi)>>1;if(clip.audioSlices[mid].start<=time)lo=mid+1;else hi=mid;}
+ const p=clip.audioSlices[lo-1];return p&&time<p.start+p.out-p.in?p.in+(time-p.start):null;
+}

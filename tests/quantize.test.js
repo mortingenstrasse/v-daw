@@ -35,3 +35,24 @@ test('non-bar cycle wraps reset grid and do not duplicate boundary clicks',()=>{
  assert.equal(new Set(events.map(e=>e.at.toFixed(8))).size,events.length);
  assert.ok(Math.abs(events[0].at-.3)<1e-8);assert.ok(Math.abs(events[2].at-1.2)<1e-8);
 });
+
+import {quantizeRegion,audioParts,audioSourceTime} from '../quantize.js';
+import {splitClip,trimClip,endOf} from '../model.js';
+test('internal quantize keeps one region and unchanged video bounds',()=>{
+ const q=quantizeRegion(clip,[.12,.62,1.12],120,4,1);
+ assert.equal(q.id,clip.id);assert.equal(q.source,clip.source);assert.equal(q.start,clip.start);assert.equal(q.in,clip.in);assert.equal(q.out,clip.out);
+ assert.equal(audioParts(q).find(p=>p.in===.62).start,.5);
+ assert.equal(audioSourceTime(q,.5),.62);
+});
+test('revising strength is non-cumulative and zero restores original',()=>{
+ const hits=[.12,.62,1.12],full=quantizeRegion(clip,hits,120,4,1);
+ assert.deepEqual(quantizeRegion(full,hits,120,4,.5),quantizeRegion(clip,hits,120,4,.5));
+ assert.deepEqual(quantizeRegion(full,hits,120,4,0),clip);
+});
+test('split and trim preserve the internal audio mapping and video window',()=>{
+ const q=quantizeRegion(clip,[.12,.62,1.12],120,4,1);
+ const split=splitClip(q,.75,'b');assert.equal(split.length,2);assert.equal(endOf(split[0]),split[1].start);
+ const parts=split.flatMap(audioParts);assert.ok(parts.every(p=>p.start>=0&&endOf(p)<=2));
+ const trimmed=trimClip(q,.25,1.75);assert.equal(trimmed.start,.25);assert.ok(audioParts(trimmed).every(p=>p.start>=.25&&endOf(p)<=1.75));
+ assert.equal(audioSourceTime(trimmed,.5),audioSourceTime(q,.5));
+});
